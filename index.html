@@ -1,0 +1,1650 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VoxelCraft</title>
+    <link href="https://fonts.googleapis.com/css2?family=Silkscreen&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { overflow: hidden; background: #000; font-family: 'Silkscreen', monospace; }
+        #game-canvas { display: block; }
+        
+        #crosshair {
+            position: fixed; top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none; z-index: 100;
+        }
+        #crosshair::before, #crosshair::after {
+            content: ''; position: absolute; background: #fff;
+        }
+        #crosshair::before { width: 2px; height: 20px; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+        #crosshair::after { width: 20px; height: 2px; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+
+        #hotbar {
+            position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+            display: flex; gap: 4px; z-index: 100;
+            padding: 8px; background: rgba(0, 0, 0, 0.5);
+            border-radius: 4px; border: 2px solid #333;
+        }
+        .hotbar-slot {
+            width: 50px; height: 50px;
+            background: rgba(80, 80, 80, 0.8);
+            border: 2px solid #444;
+            display: flex; align-items: center; justify-content: center;
+            position: relative; cursor: pointer;
+        }
+        .hotbar-slot.selected {
+            border-color: #fff; box-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+        }
+        .hotbar-slot .block-preview {
+            width: 36px; height: 36px;
+        }
+        .hotbar-slot .slot-number {
+            position: absolute; top: 2px; left: 4px;
+            font-size: 10px; color: #aaa;
+        }
+
+        #instructions {
+            position: fixed; top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            z-index: 200; color: #fff; text-align: center;
+        }
+        #instructions h1 {
+            font-size: 48px; margin-bottom: 20px;
+            color: #4a9c2d; text-shadow: 4px 4px 0 #2d5c1a;
+        }
+        #instructions .controls {
+            background: rgba(50, 50, 50, 0.8);
+            padding: 20px 40px; border-radius: 8px; margin: 20px 0;
+        }
+        #instructions .controls p { font-size: 12px; margin: 8px 0; color: #ccc; }
+        #instructions .controls span {
+            color: #fff; background: #333;
+            padding: 2px 8px; border-radius: 3px; margin-right: 10px;
+        }
+        #instructions .start-prompt {
+            font-size: 24px; margin-top: 30px;
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        @keyframes flash { 0% { opacity: 0.3; } 100% { opacity: 0; } }
+
+        #debug {
+            position: fixed; top: 10px; left: 10px;
+            background: rgba(0, 0, 0, 0.7); padding: 10px 15px;
+            color: #0f0; font-size: 12px; font-family: monospace;
+            z-index: 100; display: none; line-height: 1.6;
+        }
+        #debug.visible { display: block; }
+
+        #inventory {
+            position: fixed; top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(30, 30, 30, 0.95);
+            border: 3px solid #555; border-radius: 8px;
+            padding: 20px; z-index: 150; display: none;
+        }
+        #inventory.visible { display: block; }
+        #inventory h2 { color: #fff; margin-bottom: 20px; text-align: center; }
+        #inventory .inventory-grid {
+            display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px;
+        }
+        .inventory-slot {
+            width: 60px; height: 60px;
+            background: rgba(80, 80, 80, 0.8);
+            border: 2px solid #444;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer;
+        }
+        .inventory-slot:hover { border-color: #888; }
+        .inventory-slot .block-preview { width: 44px; height: 44px; }
+        
+        #health-bar {
+            position: fixed; top: 20px; right: 20px;
+            display: flex; gap: 4px; z-index: 100;
+            padding: 8px; background: rgba(0, 0, 0, 0.5);
+            border-radius: 4px; border: 2px solid #333;
+        }
+        .health-heart {
+            width: 16px; height: 16px;
+            background: #e74c3c;
+            clip-path: path('M8 1.5c-1.8-2.2-4.7-2.2-6.5 0-1.8 2.2-1.8 5.7 0 7.9l6.5 7.9 6.5-7.9c1.8-2.2 1.8-5.7 0-7.9-1.8-2.2-4.7-2.2-6.5 0z');
+        }
+        .health-heart.empty { background: #444; }
+        
+        #food-bar {
+            position: fixed; top: 50px; right: 20px;
+            display: flex; gap: 4px; z-index: 100;
+            padding: 8px; background: rgba(0, 0, 0, 0.5);
+            border-radius: 4px; border: 2px solid #333;
+        }
+        .food-drum {
+            width: 14px; height: 14px;
+            background: #f39c12;
+            border-radius: 50%;
+        }
+        .food-drum.empty { background: #444; }
+        
+        #crafting-ui, #furnace-ui {
+            position: fixed; top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(30, 30, 30, 0.95);
+            border: 3px solid #555; border-radius: 8px;
+            padding: 20px; z-index: 160; display: none;
+        }
+        #crafting-ui.visible, #furnace-ui.visible { display: block; }
+        #crafting-ui h2, #furnace-ui h2 { color: #fff; margin-bottom: 20px; text-align: center; }
+        
+        .crafting-grid {
+            display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;
+            margin-bottom: 20px;
+        }
+        .craft-slot {
+            width: 50px; height: 50px;
+            background: rgba(80, 80, 80, 0.8);
+            border: 2px solid #444;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; position: relative;
+        }
+        .craft-slot:hover { border-color: #888; }
+        
+        .craft-result {
+            display: flex; justify-content: center; margin: 20px 0;
+        }
+        .result-slot {
+            width: 60px; height: 60px;
+            background: rgba(100, 100, 100, 0.8);
+            border: 2px solid #ffd700;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer;
+        }
+        
+        .furnace-slots {
+            display: flex; gap: 20px; justify-content: center;
+            margin: 20px 0;
+        }
+        .furnace-slot {
+            width: 50px; height: 50px;
+            background: rgba(80, 80, 80, 0.8);
+            border: 2px solid #444;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer;
+            position: relative;
+        }
+        .furnace-slot:hover { border-color: #888; }
+        
+        .furnace-fire {
+            width: 40px; height: 40px;
+            position: relative;
+        }
+        
+        .fire-icon {
+            width: 100%; height: 100%;
+            background: linear-gradient(to bottom, #ff6600, #ff3300);
+            clip-path: polygon(20% 0%, 80% 0%, 100% 50%, 80% 100%, 20% 100%, 0% 50%);
+            animation: flicker 0.3s infinite alternate;
+        }
+        @keyframes flicker {
+            0% { transform: scale(1); opacity: 1; }
+            100% { transform: scale(1.1); opacity: 0.8; }
+        }
+        
+        .furnace-progress {
+            width: 100px; height: 8px;
+            background: rgba(50, 50, 50, 0.8);
+            border: 1px solid #444;
+            margin: 10px auto;
+        }
+        .furnace-progress-fill {
+            height: 100%;
+            background: #4a9c2d;
+            width: 0%;
+            transition: width 0.1s;
+        }
+        
+        .crafting-close, .furnace-close {
+            position: absolute; top: 10px; right: 10px;
+            color: #fff; cursor: pointer;
+            font-size: 20px;
+        }
+        
+        .slot-count {
+            position: absolute; bottom: 2px; right: 4px;
+            font-size: 11px; color: #fff;
+            text-shadow: 1px 1px 1px #000;
+        }
+        .slot-durability {
+            position: absolute; bottom: 2px; left: 4px;
+            font-size: 9px; color: #aaa;
+        }
+        
+        .item-count-input {
+            position: absolute; top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 40px; text-align: center;
+            background: rgba(0,0,0,0.8); color: #fff;
+            border: 1px solid #555; padding: 2px;
+            font-family: 'Silkscreen', monospace;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="game-canvas"></canvas>
+    <div id="crosshair"></div>
+    <div id="hotbar"></div>
+    <div id="debug">
+        <div>VoxelCraft</div>
+        <div id="debug-fps">FPS: 0</div>
+        <div id="debug-pos">Position: 0, 0, 0</div>
+    </div>
+    <div id="instructions">
+        <h1>VOXELCRAFT</h1>
+        <div class="controls">
+            <p><span>ARROW KEYS</span> Move</p>
+            <p><span>SPACE</span> Jump</p>
+            <p><span>MOUSE</span> Look around</p>
+            <p><span>LEFT CLICK</span> Break/Use block</p>
+            <p><span>RIGHT CLICK</span> Place block</p>
+            <p><span>1-9</span> Select hotbar slot</p>
+            <p><span>E</span> Inventory</p>
+            <p><span>C</span> Crafting Table</p>
+            <p><span>F3</span> Debug info</p>
+            <p><span>ESC</span> Close UI</p>
+        </div>
+        <div class="start-prompt">Click to Play</div>
+    </div>
+    <div id="inventory">
+        <h2>Inventory</h2>
+        <div class="inventory-grid"></div>
+    </div>
+    
+    <div id="health-bar"></div>
+    <div id="food-bar"></div>
+    
+    <div id="crafting-ui">
+        <span class="crafting-close">×</span>
+        <h2>Crafting</h2>
+        <div class="crafting-grid"></div>
+        <div class="craft-result">
+            <div class="result-slot"></div>
+        </div>
+    </div>
+    
+    <div id="furnace-ui">
+        <span class="furnace-close">×</span>
+        <h2>Furnace</h2>
+        <div class="furnace-slots">
+            <div class="furnace-slot" id="furnace-input"></div>
+            <div class="furnace-fire">
+                <div class="fire-icon"></div>
+            </div>
+            <div class="furnace-slot" id="furnace-fuel"></div>
+            <div class="furnace-slot" id="furnace-output"></div>
+        </div>
+        <div class="furnace-progress">
+            <div class="furnace-progress-fill"></div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        const BLOCKS = {
+            AIR: 0, GRASS: 1, DIRT: 2, STONE: 3, WOOD: 4,
+            LEAVES: 5, SAND: 6, COBBLE: 7, BRICK: 8, GLASS: 9,
+            OBSIDIAN: 10, COAL: 11, IRON: 12, GOLD: 13, DIAMOND: 14, WATER: 15, SNOW: 16,
+            CRAFTING_TABLE: 17, FURNACE: 18, WOOL: 19, COAL_ORE: 20, IRON_ORE: 21, GOLD_ORE: 22, DIAMOND_ORE: 23,
+            COBBLESTONE: 24, WOOD_PLANKS: 25, STICK: 26,
+            WOOD_PICKAXE: 27, WOOD_AXE: 28, WOOD_SHOVEL: 29, WOOD_SWORD: 30,
+            STONE_PICKAXE: 31, STONE_AXE: 32, STONE_SHOVEL: 33, STONE_SWORD: 34,
+            IRON_PICKAXE: 35, IRON_AXE: 36, IRON_SHOVEL: 37, IRON_SWORD: 38,
+            DIAMOND_PICKAXE: 39, DIAMOND_AXE: 40, DIAMOND_SHOVEL: 41, DIAMOND_SWORD: 42,
+            RAW_BEEF: 43, COOKED_BEEF: 44, RAW_CHICKEN: 45, COOKED_CHICKEN: 46,
+            PORK: 47, COOKED_PORK: 48, WHEAT: 49, BREAD: 50, EGG: 51,
+            STRING: 52, BOW: 53, ARROW: 54, SLIME_BALL: 55,
+            STONE_HOE: 56, IRON_HOE: 57, DIAMOND_HOE: 58
+        };
+
+        const BLOCK_COLORS = {
+            [BLOCKS.GRASS]: { top: 0x4a9c2d, side: 0x6b4423, bottom: 0x5c3d1e },
+            [BLOCKS.DIRT]: 0x5c3d1e, [BLOCKS.STONE]: 0x7a7a7a,
+            [BLOCKS.WOOD]: 0x6b4423, [BLOCKS.LEAVES]: 0x2d6b1a,
+            [BLOCKS.SAND]: 0xd4b896, [BLOCKS.COBBLE]: 0x6b6b6b,
+            [BLOCKS.BRICK]: 0xa04030, [BLOCKS.GLASS]: { t: 0xccddff, trans: true },
+            [BLOCKS.OBSIDIAN]: 0x1a0a2e, [BLOCKS.COAL]: 0x3a3a3a,
+            [BLOCKS.IRON]: 0x8b7355, [BLOCKS.GOLD]: 0xc9a227,
+            [BLOCKS.DIAMOND]: 0x00ffff, [BLOCKS.WATER]: { t: 0x3498db, trans: true },
+            [BLOCKS.SNOW]: 0xeeffff,
+            [BLOCKS.CRAFTING_TABLE]: 0x8B4513, [BLOCKS.FURNACE]: 0x4a4a4a,
+            [BLOCKS.WOOL]: 0xcccccc, [BLOCKS.COAL_ORE]: 0x3a3a3a,
+            [BLOCKS.IRON_ORE]: 0x8b7355, [BLOCKS.GOLD_ORE]: 0xc9a227,
+            [BLOCKS.DIAMOND_ORE]: 0x00ffff, [BLOCKS.COBBLESTONE]: 0x6b6b6b,
+            [BLOCKS.WOOD_PLANKS]: 0xdeb887, [BLOCKS.STICK]: 0x8b6914,
+            [BLOCKS.WOOD_PICKAXE]: 0x8B4513, [BLOCKS.WOOD_AXE]: 0x8B4513,
+            [BLOCKS.WOOD_SHOVEL]: 0x8B4513, [BLOCKS.WOOD_SWORD]: 0x8B4513,
+            [BLOCKS.STONE_PICKAXE]: 0x7a7a7a, [BLOCKS.STONE_AXE]: 0x7a7a7a,
+            [BLOCKS.STONE_SHOVEL]: 0x7a7a7a, [BLOCKS.STONE_SWORD]: 0x7a7a7a,
+            [BLOCKS.IRON_PICKAXE]: 0xc0c0c0, [BLOCKS.IRON_AXE]: 0xc0c0c0,
+            [BLOCKS.IRON_SHOVEL]: 0xc0c0c0, [BLOCKS.IRON_SWORD]: 0xc0c0c0,
+            [BLOCKS.DIAMOND_PICKAXE]: 0x00ffff, [BLOCKS.DIAMOND_AXE]: 0x00ffff,
+            [BLOCKS.DIAMOND_SHOVEL]: 0x00ffff, [BLOCKS.DIAMOND_SWORD]: 0x00ffff,
+            [BLOCKS.RAW_BEEF]: 0x8b0000, [BLOCKS.COOKED_BEEF]: 0x4a0000,
+            [BLOCKS.RAW_CHICKEN]: 0xdeb887, [BLOCKS.COOKED_CHICKEN]: 0xcd853f,
+            [BLOCKS.PORK]: 0xffb6c1, [BLOCKS.COOKED_PORK]: 0xcd5c5c,
+            [BLOCKS.WHEAT]: 0xdaa520, [BLOCKS.BREAD]: 0xf4a460,
+            [BLOCKS.EGG]: 0xfffacd, [BLOCKS.STRING]: 0xf5f5dc,
+            [BLOCKS.BOW]: 0x8b4513, [BLOCKS.ARROW]: 0x8b6914,
+            [BLOCKS.SLIME_BALL]: 0x32cd32,
+            [BLOCKS.STONE_HOE]: 0x7a7a7a, [BLOCKS.IRON_HOE]: 0xc0c0c0, [BLOCKS.DIAMOND_HOE]: 0x00ffff
+        };
+
+        const TOOL_TYPES = {
+            [BLOCKS.WOOD_PICKAXE]: { type: 'pickaxe', material: 'wood', durability: 60 },
+            [BLOCKS.STONE_PICKAXE]: { type: 'pickaxe', material: 'stone', durability: 131 },
+            [BLOCKS.IRON_PICKAXE]: { type: 'pickaxe', material: 'iron', durability: 250 },
+            [BLOCKS.DIAMOND_PICKAXE]: { type: 'pickaxe', material: 'diamond', durability: 1561 },
+            [BLOCKS.WOOD_AXE]: { type: 'axe', material: 'wood', durability: 60 },
+            [BLOCKS.STONE_AXE]: { type: 'axe', material: 'stone', durability: 131 },
+            [BLOCKS.IRON_AXE]: { type: 'axe', material: 'iron', durability: 250 },
+            [BLOCKS.DIAMOND_AXE]: { type: 'axe', material: 'diamond', durability: 1561 },
+            [BLOCKS.WOOD_SHOVEL]: { type: 'shovel', material: 'wood', durability: 60 },
+            [BLOCKS.STONE_SHOVEL]: { type: 'shovel', material: 'stone', durability: 131 },
+            [BLOCKS.IRON_SHOVEL]: { type: 'shovel', material: 'iron', durability: 250 },
+            [BLOCKS.DIAMOND_SHOVEL]: { type: 'shovel', material: 'diamond', durability: 1561 },
+            [BLOCKS.WOOD_SWORD]: { type: 'sword', material: 'wood', durability: 60 },
+            [BLOCKS.STONE_SWORD]: { type: 'sword', material: 'stone', durability: 131 },
+            [BLOCKS.IRON_SWORD]: { type: 'sword', material: 'iron', durability: 250 },
+            [BLOCKS.DIAMOND_SWORD]: { type: 'sword', material: 'diamond', durability: 1561 },
+            [BLOCKS.STONE_HOE]: { type: 'hoe', material: 'stone', durability: 131 },
+            [BLOCKS.IRON_HOE]: { type: 'hoe', material: 'iron', durability: 250 },
+            [BLOCKS.DIAMOND_HOE]: { type: 'hoe', material: 'diamond', durability: 1561 }
+        };
+
+        const HOTBAR_BLOCKS = [BLOCKS.GRASS, BLOCKS.DIRT, BLOCKS.STONE, BLOCKS.WOOD, BLOCKS.LEAVES, BLOCKS.SAND, BLOCKS.COBBLE, BLOCKS.BRICK, BLOCKS.GLASS];
+        const INVENTORY_BLOCKS = [BLOCKS.GRASS, BLOCKS.DIRT, BLOCKS.STONE, BLOCKS.WOOD, BLOCKS.LEAVES, BLOCKS.SAND, BLOCKS.COBBLE, BLOCKS.BRICK, BLOCKS.GLASS, BLOCKS.OBSIDIAN, BLOCKS.COAL, BLOCKS.IRON, BLOCKS.GOLD, BLOCKS.DIAMOND, BLOCKS.WATER, BLOCKS.CRAFTING_TABLE, BLOCKS.FURNACE, BLOCKS.WOOL, BLOCKS.COAL_ORE, BLOCKS.IRON_ORE, BLOCKS.GOLD_ORE, BLOCKS.DIAMOND_ORE, BLOCKS.COBBLESTONE, BLOCKS.WOOD_PLANKS, BLOCKS.STICK, BLOCKS.WOOD_PICKAXE, BLOCKS.WOOD_SWORD, BLOCKS.STONE_PICKAXE, BLOCKS.IRON_PICKAXE, BLOCKS.DIAMOND_PICKAXE, BLOCKS.RAW_BEEF, BLOCKS.COOKED_BEEF, BLOCKS.RAW_CHICKEN, BLOCKS.COOKED_CHICKEN, BLOCKS.PORK, BLOCKS.COOKED_PORK, BLOCKS.BREAD];
+
+        let scene, camera, renderer;
+        let chunks = new Map();
+        let player = { 
+            position: new THREE.Vector3(32, 35, 32), 
+            velocity: new THREE.Vector3(), 
+            onGround: false, 
+            height: 1.7, 
+            width: 0.5,
+            health: 20,
+            maxHealth: 20,
+            food: 20,
+            maxFood: 20,
+            saturation: 5,
+            armor: 0
+        };
+        let selectedBlock = 0, isLocked = false, showDebug = false, showInventory = false, gameStarted = false;
+        let inventory = Array(36).fill(null).map(() => ({ type: null, count: 1, durability: 0 }));
+        let hotbarStart = 0;
+        let selectedInventorySlot = 0;
+        
+        const keys = {};
+        const keysJustDown = {};
+        const moveSpeed = 5, jumpForce = 6, gravity = 18, reachDistance = 5;
+        let pitch = 0, yaw = 0;
+        let lastTime = performance.now(), fps = 0, frameCount = 0;
+        let timeOfDay = 0, isNight = false;
+        let highlightMesh, chunkMeshes = [];
+        const _frustum = new THREE.Frustum();
+        const _projScreenMatrix = new THREE.Matrix4();
+        
+        const _v0 = new THREE.Vector3(), _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3();
+        const _dir = new THREE.Vector3();
+        const _origin = new THREE.Vector3();
+        const _matrix = new THREE.Matrix4();
+        const _up = new THREE.Vector3(0, 1, 0);
+        const particles = [];
+        let particleGeometry, particleMaterial;
+        
+        const mobs = [];
+        const mobMeshes = new Map();
+        const MOB_TYPES = {
+            SHEEP: { name: 'sheep', color: 0xffffff, health: 8, passive: true, speed: 2, drops: [{ type: BLOCKS.WOOL, count: 1 }] },
+            COW: { name: 'cow', color: 0x8b4513, health: 10, passive: true, speed: 2, drops: [{ type: BLOCKS.RAW_BEEF, count: 1 }, { type: BLOCKS.LEAVES, count: 1 }] },
+            CHICKEN: { name: 'chicken', color: 0xffd700, health: 4, passive: true, speed: 3, drops: [{ type: BLOCKS.RAW_CHICKEN, count: 1 }, { type: BLOCKS.EGG, count: 1 }] },
+            PIG: { name: 'pig', color: 0xffb6c1, health: 10, passive: true, speed: 2, drops: [{ type: BLOCKS.PORK, count: 1 }] },
+            ZOMBIE: { name: 'zombie', color: 0x228b22, health: 20, passive: false, speed: 2.5, damage: 3, attackCooldown: 0, drops: [{ type: BLOCKS.ROTTEN_FLESH || 0, count: 1 }] },
+            SKELETON: { name: 'skeleton', color: 0xf5f5f5, health: 20, passive: false, speed: 2.8, damage: 2, range: 12, attackCooldown: 0, drops: [{ type: BLOCKS.BONE || 0, count: 1 }, { type: BLOCKS.ARROW, count: 2 }] },
+            CREEPER: { name: 'creeper', color: 0x00ff00, health: 20, passive: false, speed: 3, damage: 10, explodeRadius: 3, attackCooldown: 0, drops: [{ type: BLOCKS.GUNPOWDER || 0, count: 1 }] },
+            SPIDER: { name: 'spider', color: 0x1a1a1a, health: 16, passive: false, speed: 2.8, damage: 2, attackCooldown: 0, drops: [{ type: BLOCKS.STRING, count: 1 }] }
+        };
+        
+        let craftingOpen = false, furnaceOpen = false;
+        let craftingGrid = Array(9).fill(null);
+        let craftingResult = null;
+        let furnaceInput = null;
+        let furnaceFuel = null;
+        let furnaceOutput = null;
+        let furnaceBurnTime = 0;
+        let furnaceCookTime = 0;
+        
+        const FURNACE_RECIPES = [
+            { input: BLOCKS.IRON_ORE, output: BLOCKS.IRON, time: 10 },
+            { input: BLOCKS.GOLD_ORE, output: BLOCKS.GOLD, time: 8 },
+            { input: BLOCKS.RAW_BEEF, output: BLOCKS.COOKED_BEEF, time: 5 },
+            { input: BLOCKS.RAW_CHICKEN, output: BLOCKS.COOKED_CHICKEN, time: 5 },
+            { input: BLOCKS.PORK, output: BLOCKS.COOKED_PORK, time: 5 },
+            { input: BLOCKS.WHEAT, output: BLOCKS.BREAD, time: 10 },
+            { input: BLOCKS.SAND, output: BLOCKS.GLASS, time: 10 }
+        ];
+        
+        const FUEL_ITEMS = [
+            { type: BLOCKS.WOOD, time: 4 },
+            { type: BLOCKS.WOOD_PLANKS, time: 3 },
+            { type: BLOCKS.STICK, time: 2 },
+            { type: BLOCKS.COAL, time: 12 },
+            { type: BLOCKS.WOOD_PICKAXE, time: 8 },
+            { type: BLOCKS.WOOD_AXE, time: 8 },
+            { type: BLOCKS.WOOD_SWORD, time: 8 },
+            { type: BLOCKS.WOOD_SHOVEL, time: 8 },
+            { type: BLOCKS.BOARDS || 0, time: 15 }
+        ];
+
+        const PASSIVE_MOBS = [MOB_TYPES.SHEEP, MOB_TYPES.COW, MOB_TYPES.CHICKEN, MOB_TYPES.PIG];
+        const HOSTILE_MOBS = [MOB_TYPES.ZOMBIE, MOB_TYPES.SKELETON, MOB_TYPES.CREEPER, MOB_TYPES.SPIDER];
+
+        function spawnMob(type, x, y, z) {
+            const mob = {
+                type: type,
+                position: new THREE.Vector3(x, y, z),
+                velocity: new THREE.Vector3(),
+                health: type.health,
+                onGround: false,
+                target: null,
+                attackCooldown: 0,
+                wanderTimer: Math.random() * 3,
+                wanderDirection: new THREE.Vector3(Math.random() - 0.5, 0, Math.random() - 0.5).normalize()
+            };
+            mobs.push(mob);
+            return mob;
+        }
+
+        function updateMobs(dt) {
+            const nowNight = timeOfDay > 0.4 && timeOfDay < 0.8;
+            
+            if (nowNight && !isNight && Math.random() < 0.02) {
+                for (let i = 0; i < 3; i++) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const dist = 10 + Math.random() * 20;
+                    const x = player.position.x + Math.cos(angle) * dist;
+                    const z = player.position.z + Math.sin(angle) * dist;
+                    const y = getBlock(Math.floor(x), GROUND_HEIGHT + 1, Math.floor(z));
+                    if (y === BLOCKS.GRASS || y === BLOCKS.SNOW) {
+                        spawnMob(HOSTILE_MOBS[Math.floor(Math.random() * HOSTILE_MOBS.length)], x, GROUND_HEIGHT + 2, z);
+                    }
+                }
+            }
+            isNight = nowNight;
+            
+            if (!nowNight && Math.random() < 0.005 && mobs.filter(m => !m.type.passive).length < 5) {
+                mobs.filter(m => !m.type.passive).forEach(m => {
+                    m.health = 0;
+                });
+            }
+            
+            for (let i = mobs.length - 1; i >= 0; i--) {
+                const mob = mobs[i];
+                
+                if (mob.health <= 0) {
+                    mob.type.drops.forEach(drop => {
+                        if (drop.type) addItemToInventory(drop.type, drop.count);
+                    });
+                    
+                    if (mob.mesh) {
+                        scene.remove(mob.mesh);
+                        mobMeshes.delete(mob);
+                    }
+                    mobs.splice(i, 1);
+                    continue;
+                }
+                
+                const dist = mob.position.distanceTo(player.position);
+                
+                if (!mob.type.passive && dist < 20) {
+                    mob.target = player.position.clone();
+                    
+                    if (mob.type.name === 'creeper' && dist < 2) {
+                        damagePlayer(mob.type.damage || 5);
+                        mob.health = 0;
+                        spawnParticles(mob.position.x, mob.position.y, mob.position.z, { t: 0x00ff00 }, 20);
+                        continue;
+                    }
+                } else if (!mob.target || dist > 25) {
+                    mob.target = null;
+                }
+                
+                if (mob.target) {
+                    const direction = new THREE.Vector3().subVectors(mob.target, mob.position);
+                    direction.y = 0;
+                    direction.normalize();
+                    
+                    mob.velocity.x = direction.x * mob.type.speed;
+                    mob.velocity.z = direction.z * mob.type.speed;
+                    
+                    if (mob.onGround && Math.random() < 0.01) {
+                        mob.velocity.y = 4;
+                        mob.onGround = false;
+                    }
+                } else {
+                    mob.wanderTimer -= dt;
+                    if (mob.wanderTimer <= 0) {
+                        mob.wanderDirection = new THREE.Vector3(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
+                        mob.wanderTimer = 2 + Math.random() * 3;
+                    }
+                    mob.velocity.x = mob.wanderDirection.x * (mob.type.speed * 0.3);
+                    mob.velocity.z = mob.wanderDirection.z * (mob.type.speed * 0.3);
+                }
+                
+                if (mob.attackCooldown > 0) mob.attackCooldown -= dt;
+                
+                const nextX = mob.position.x + mob.velocity.x * dt;
+                const nextZ = mob.position.z + mob.velocity.z * dt;
+                if (!checkMobCollision(nextX, mob.position.y, mob.position.z)) {
+                    mob.position.x = nextX;
+                }
+                if (!checkMobCollision(mob.position.x, mob.position.y, nextZ)) {
+                    mob.position.z = nextZ;
+                }
+                
+                mob.velocity.y -= 15 * dt;
+                const nextY = mob.position.y + mob.velocity.y * dt;
+                if (getBlock(Math.floor(mob.position.x), Math.floor(nextY), Math.floor(mob.position.z)) === BLOCKS.AIR) {
+                    mob.position.y = nextY;
+                    mob.onGround = false;
+                } else {
+                    if (mob.velocity.y < 0) mob.onGround = true;
+                    mob.velocity.y = 0;
+                }
+                
+                if (mob.position.y < 2) {
+                    mob.position.set(player.position.x + (Math.random() - 0.5) * 20, GROUND_HEIGHT + 2, player.position.z + (Math.random() - 0.5) * 20);
+                }
+                
+                if (!mob.mesh) {
+                    const geo = new THREE.BoxGeometry(0.8, 0.8, 0.8);
+                    const mat = new THREE.MeshLambertMaterial({ color: mob.type.color });
+                    mob.mesh = new THREE.Mesh(geo, mat);
+                    scene.add(mob.mesh);
+                    mobMeshes.set(mob, mob.mesh);
+                }
+                mob.mesh.position.copy(mob.position);
+            }
+        }
+
+        function checkMobCollision(x, y, z) {
+            const hw = 0.4;
+            const checkPoints = [
+                [x - hw, y, z - hw], [x + hw, y, z - hw],
+                [x - hw, y + 0.8, z - hw], [x + hw, y + 0.8, z - hw],
+                [x - hw, y, z + hw], [x + hw, y, z + hw],
+                [x - hw, y + 0.8, z + hw], [x + hw, y + 0.8, z + hw]
+            ];
+            return checkPoints.some(([px, py, pz]) => {
+                const b = getBlock(Math.floor(px), Math.floor(py), Math.floor(pz));
+                return b !== BLOCKS.AIR && b !== BLOCKS.WATER && b !== BLOCKS.LEAVES;
+            });
+        }
+
+        function spawnPassiveMobs() {
+            for (let i = 0; i < 5; i++) {
+                const type = PASSIVE_MOBS[Math.floor(Math.random() * PASSIVE_MOBS.length)];
+                const angle = Math.random() * Math.PI * 2;
+                const dist = 5 + Math.random() * 15;
+                const x = player.position.x + Math.cos(angle) * dist;
+                const z = player.position.z + Math.sin(angle) * dist;
+                spawnMob(type, x, GROUND_HEIGHT + 1, z);
+            }
+        }
+
+        const CRAFTING_RECIPES = [
+            { pattern: [[BLOCKS.WOOD], [BLOCKS.WOOD], [BLOCKS.WOOD]], result: { type: BLOCKS.WOOD_PLANKS, count: 4 } },
+            { pattern: [[BLOCKS.WOOD_PLANKS, BLOCKS.WOOD_PLANKS], [BLOCKS.WOOD_PLANKS, BLOCKS.WOOD_PLANKS]], result: { type: BLOCKS.CRAFTING_TABLE, count: 1 } },
+            { pattern: [[BLOCKS.WOOD_PLANKS], [BLOCKS.WOOD_PLANKS]], result: { type: BLOCKS.STICK, count: 4 } },
+            { pattern: [[BLOCKS.WOOD_PLANKS, BLOCKS.WOOD_PLANKS, BLOCKS.WOOD_PLANKS], [null, BLOCKS.STICK, null], [null, BLOCKS.STICK, null]], result: { type: BLOCKS.WOOD_PICKAXE, count: 1 } },
+            { pattern: [[BLOCKS.WOOD_PLANKS, BLOCKS.WOOD_PLANKS], [BLOCKS.WOOD_PLANKS, BLOCKS.STICK], [null, BLOCKS.STICK]], result: { type: BLOCKS.WOOD_AXE, count: 1 } },
+            { pattern: [[BLOCKS.WOOD_PLANKS], [BLOCKS.STICK], [BLOCKS.STICK]], result: { type: BLOCKS.WOOD_SHOVEL, count: 1 } },
+            { pattern: [[BLOCKS.WOOD_PLANKS, BLOCKS.WOOD_PLANKS], [BLOCKS.WOOD_PLANKS, BLOCKS.STICK]], result: { type: BLOCKS.WOOD_SWORD, count: 1 } },
+            { pattern: [[BLOCKS.COBBLESTONE, BLOCKS.COBBLESTONE, BLOCKS.COBBLESTONE], [null, BLOCKS.STICK, null], [null, BLOCKS.STICK, null]], result: { type: BLOCKS.STONE_PICKAXE, count: 1 } },
+            { pattern: [[BLOCKS.COBBLESTONE, BLOCKS.COBBLESTONE], [BLOCKS.COBBLESTONE, BLOCKS.STICK], [null, BLOCKS.STICK]], result: { type: BLOCKS.STONE_AXE, count: 1 } },
+            { pattern: [[BLOCKS.COBBLESTONE], [BLOCKS.STICK], [BLOCKS.STICK]], result: { type: BLOCKS.STONE_SHOVEL, count: 1 } },
+            { pattern: [[BLOCKS.COBBLESTONE, BLOCKS.COBBLESTONE], [BLOCKS.COBBLESTONE, BLOCKS.STICK]], result: { type: BLOCKS.STONE_SWORD, count: 1 } },
+            { pattern: [[BLOCKS.COBBLESTONE, BLOCKS.COBBLESTONE, BLOCKS.COBBLESTONE], [null, BLOCKS.STICK, null], [null, BLOCKS.STICK, null]], result: { type: BLOCKS.STONE_HOE, count: 1 } },
+            { pattern: [[BLOCKS.IRON, BLOCKS.IRON, BLOCKS.IRON], [null, BLOCKS.STICK, null], [null, BLOCKS.STICK, null]], result: { type: BLOCKS.IRON_PICKAXE, count: 1 } },
+            { pattern: [[BLOCKS.IRON, BLOCKS.IRON], [BLOCKS.IRON, BLOCKS.STICK], [null, BLOCKS.STICK]], result: { type: BLOCKS.IRON_AXE, count: 1 } },
+            { pattern: [[BLOCKS.IRON], [BLOCKS.STICK], [BLOCKS.STICK]], result: { type: BLOCKS.IRON_SHOVEL, count: 1 } },
+            { pattern: [[BLOCKS.IRON, BLOCKS.IRON], [BLOCKS.IRON, BLOCKS.STICK]], result: { type: BLOCKS.IRON_SWORD, count: 1 } },
+            { pattern: [[BLOCKS.IRON, BLOCKS.IRON, BLOCKS.IRON], [null, BLOCKS.STICK, null], [null, BLOCKS.STICK, null]], result: { type: BLOCKS.IRON_HOE, count: 1 } },
+            { pattern: [[BLOCKS.DIAMOND, BLOCKS.DIAMOND, BLOCKS.DIAMOND], [null, BLOCKS.STICK, null], [null, BLOCKS.STICK, null]], result: { type: BLOCKS.DIAMOND_PICKAXE, count: 1 } },
+            { pattern: [[BLOCKS.DIAMOND, BLOCKS.DIAMOND], [BLOCKS.DIAMOND, BLOCKS.STICK], [null, BLOCKS.STICK]], result: { type: BLOCKS.DIAMOND_AXE, count: 1 } },
+            { pattern: [[BLOCKS.DIAMOND], [BLOCKS.STICK], [BLOCKS.STICK]], result: { type: BLOCKS.DIAMOND_SHOVEL, count: 1 } },
+            { pattern: [[BLOCKS.DIAMOND, BLOCKS.DIAMOND], [BLOCKS.DIAMOND, BLOCKS.STICK]], result: { type: BLOCKS.DIAMOND_SWORD, count: 1 } },
+            { pattern: [[BLOCKS.DIAMOND, BLOCKS.DIAMOND, BLOCKS.DIAMOND], [null, BLOCKS.STICK, null], [null, BLOCKS.STICK, null]], result: { type: BLOCKS.DIAMOND_HOE, count: 1 } },
+            { pattern: [[BLOCKS.STONE, BLOCKS.STONE, BLOCKS.STONE], [BLOCKS.STONE, null, BLOCKS.STONE], [BLOCKS.STONE, BLOCKS.STONE, BLOCKS.STONE]], result: { type: BLOCKS.FURNACE, count: 1 } },
+            { pattern: [[BLOCKS.WOOL, BLOCKS.WOOL], [BLOCKS.WOOL, BLOCKS.WOOL]], result: { type: BLOCKS.WOOL, count: 1 } },
+            { pattern: [[BLOCKS.STRING, BLOCKS.STRING], [BLOCKS.STRING, null], [BLOCKS.STRING, null]], result: { type: BLOCKS.BOW, count: 1 } },
+            { pattern: [[BLOCKS.STICK, BLOCKS.IRON], [BLOCKS.STICK, null], [BLOCKS.STICK, null]], result: { type: BLOCKS.ARROW, count: 4 } },
+            { pattern: [[BLOCKS.WOOD, BLOCKS.WOOD, BLOCKS.WOOD], [BLOCKS.WOOD, BLOCKS.WOOD, BLOCKS.WOOD], [BLOCKS.WOOD, BLOCKS.WOOD, BLOCKS.WOOD]], result: { type: BLOCKS.WOOD_PLANKS, count: 16 } }
+        ];
+
+        function checkCraftingRecipe() {
+            const grid = [];
+            for (let i = 0; i < 9; i++) {
+                grid.push(craftingGrid[i] ? craftingGrid[i].type : null);
+            }
+            
+            for (const recipe of CRAFTING_RECIPES) {
+                const pattern = recipe.pattern;
+                let matches = true;
+                
+                for (let row = 0; row < 3; row++) {
+                    for (let col = 0; col < 3; col++) {
+                        const expected = pattern[row] ? pattern[row][col] : null;
+                        const actual = grid[row * 3 + col];
+                        if (expected !== actual) {
+                            matches = false;
+                            break;
+                        }
+                    }
+                    if (!matches) break;
+                }
+                
+                if (matches) {
+                    craftingResult = { type: recipe.result.type, count: recipe.result.count };
+                    updateCraftingUI();
+                    return;
+                }
+            }
+            craftingResult = null;
+            updateCraftingUI();
+        }
+
+        function craftItem() {
+            if (!craftingResult) return;
+            
+            const canCraft = hasItem(craftingResult.type, 0);
+            
+            for (let i = 0; i < 9; i++) {
+                if (craftingGrid[i]) {
+                    craftingGrid[i].count--;
+                    if (craftingGrid[i].count <= 0) {
+                        craftingGrid[i] = null;
+                    }
+                }
+            }
+            
+            addItemToInventory(craftingResult.type, craftingResult.count);
+            checkCraftingRecipe();
+            updateInventoryUI();
+        }
+
+        function openCrafting() {
+            craftingOpen = true;
+            document.getElementById('crafting-ui').classList.add('visible');
+            document.exitPointerLock();
+        }
+
+        function closeCrafting() {
+            craftingOpen = false;
+            document.getElementById('crafting-ui').classList.remove('visible');
+        }
+
+        function updateCraftingUI() {
+            const grid = document.querySelector('.crafting-grid');
+            grid.innerHTML = '';
+            for (let i = 0; i < 9; i++) {
+                const slot = document.createElement('div');
+                slot.className = 'craft-slot';
+                if (craftingGrid[i] && craftingGrid[i].type) {
+                    const preview = document.createElement('div');
+                    preview.className = 'block-preview';
+                    preview.style.background = BLOCK_COLORS_PRECOMPUTED[craftingGrid[i].type] || '#888';
+                    slot.appendChild(preview);
+                    
+                    if (craftingGrid[i].count > 1) {
+                        const count = document.createElement('span');
+                        count.className = 'slot-count';
+                        count.textContent = craftingGrid[i].count;
+                        slot.appendChild(count);
+                    }
+                }
+                slot.onclick = () => {
+                    const selectedItem = inventory[selectedInventorySlot];
+                    if (selectedItem && selectedItem.type) {
+                        craftingGrid[i] = { type: selectedItem.type, count: 1 };
+                        selectedItem.count--;
+                        if (selectedItem.count <= 0) selectedItem.type = null;
+                        checkCraftingRecipe();
+                        updateInventoryUI();
+                        updateCraftingUI();
+                    }
+                };
+                grid.appendChild(slot);
+            }
+            
+            const resultSlot = document.querySelector('.result-slot');
+            resultSlot.innerHTML = '';
+            if (craftingResult) {
+                const preview = document.createElement('div');
+                preview.className = 'block-preview';
+                preview.style.background = BLOCK_COLORS_PRECOMPUTED[craftingResult.type] || '#888';
+                resultSlot.appendChild(preview);
+                
+                const count = document.createElement('span');
+                count.className = 'slot-count';
+                count.textContent = craftingResult.count;
+                resultSlot.appendChild(count);
+            }
+            resultSlot.onclick = craftItem;
+        }
+
+        function updateFurnaceUI() {
+            const inputSlot = document.getElementById('furnace-input');
+            const fuelSlot = document.getElementById('furnace-fuel');
+            const outputSlot = document.getElementById('furnace-output');
+            
+            [inputSlot, fuelSlot, outputSlot].forEach(slot => {
+                slot.innerHTML = '';
+                slot.onclick = null;
+            });
+            
+            if (furnaceInput) {
+                const preview = document.createElement('div');
+                preview.className = 'block-preview';
+                preview.style.background = BLOCK_COLORS_PRECOMPUTED[furnaceInput.type] || '#888';
+                inputSlot.appendChild(preview);
+                
+                if (furnaceInput.count > 1) {
+                    const count = document.createElement('span');
+                    count.className = 'slot-count';
+                    count.textContent = furnaceInput.count;
+                    inputSlot.appendChild(count);
+                }
+            }
+            inputSlot.onclick = () => {
+                const selectedItem = inventory[selectedInventorySlot];
+                if (selectedItem && selectedItem.type) {
+                    const recipe = FURNACE_RECIPES.find(r => r.input === selectedItem.type);
+                    if (recipe) {
+                        furnaceInput = { type: selectedItem.type, count: 1 };
+                        selectedItem.count--;
+                        if (selectedItem.count <= 0) selectedItem.type = null;
+                        updateInventoryUI();
+                        updateFurnaceUI();
+                    }
+                }
+            };
+            
+            if (furnaceFuel) {
+                const preview = document.createElement('div');
+                preview.className = 'block-preview';
+                preview.style.background = BLOCK_COLORS_PRECOMPUTED[furnaceFuel.type] || '#888';
+                fuelSlot.appendChild(preview);
+            }
+            fuelSlot.onclick = () => {
+                const selectedItem = inventory[selectedInventorySlot];
+                if (selectedItem && selectedItem.type) {
+                    const fuel = FUEL_ITEMS.find(f => f.type === selectedItem.type);
+                    if (fuel && furnaceBurnTime <= 0) {
+                        furnaceFuel = { type: selectedItem.type, time: fuel.time };
+                        selectedItem.count--;
+                        if (selectedItem.count <= 0) selectedItem.type = null;
+                        updateInventoryUI();
+                        updateFurnaceUI();
+                    }
+                }
+            };
+            
+            if (furnaceOutput) {
+                const preview = document.createElement('div');
+                preview.className = 'block-preview';
+                preview.style.background = BLOCK_COLORS_PRECOMPUTED[furnaceOutput.type] || '#888';
+                outputSlot.appendChild(preview);
+            }
+            outputSlot.onclick = () => {
+                if (furnaceOutput) {
+                    addItemToInventory(furnaceOutput.type, furnaceOutput.count);
+                    furnaceOutput = null;
+                    furnaceCookTime = 0;
+                    
+                    if (furnaceInput && furnaceInput.count > 0) {
+                        furnaceInput.count--;
+                        if (furnaceInput.count <= 0) furnaceInput = null;
+                    }
+                    
+                    updateFurnaceUI();
+                    updateInventoryUI();
+                }
+            };
+            
+            const progressFill = document.querySelector('.furnace-progress-fill');
+            if (furnaceOutput && furnaceBurnTime > 0) {
+                const recipe = FURNACE_RECIPES.find(r => r.input === (furnaceInput ? furnaceInput.type : null));
+                const progress = recipe ? (furnaceCookTime / recipe.time) * 100 : 0;
+                progressFill.style.width = progress + '%';
+            } else {
+                progressFill.style.width = '0%';
+            }
+            
+            document.querySelector('.fire-icon').style.opacity = furnaceBurnTime > 0 ? '1' : '0.3';
+        }
+
+        function updateFurnace(dt) {
+            if (furnaceFuel && furnaceBurnTime <= 0) {
+                furnaceBurnTime = furnaceFuel.time;
+                furnaceFuel = null;
+            }
+            
+            if (furnaceBurnTime > 0) {
+                furnaceBurnTime -= dt;
+                
+                if (furnaceInput && !furnaceOutput) {
+                    const recipe = FURNACE_RECIPES.find(r => r.input === furnaceInput.type);
+                    if (recipe) {
+                        furnaceCookTime += dt;
+                        if (furnaceCookTime >= recipe.time) {
+                            furnaceOutput = { type: recipe.output, count: 1 };
+                            furnaceCookTime = 0;
+                        }
+                    }
+                }
+                
+                if (furnaceInput && !furnaceOutput && furnaceBurnTime <= 0) {
+                    if (furnaceInput && furnaceInput.count > 0) {
+                        furnaceInput.count--;
+                        if (furnaceInput.count <= 0) furnaceInput = null;
+                    }
+                }
+            }
+            
+            updateFurnaceUI();
+        }
+
+        function openFurnace() {
+            furnaceOpen = true;
+            document.getElementById('furnace-ui').classList.add('visible');
+            document.exitPointerLock();
+        }
+
+        function closeFurnace() {
+            furnaceOpen = false;
+            document.getElementById('furnace-ui').classList.remove('visible');
+            if (gameStarted) document.body.requestPointerLock();
+        }
+        
+        const noise = new SimplexNoise(12345);
+        let audioCtx;
+        
+        function initAudio() {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        
+        function playSound(type) {
+            if (!audioCtx) initAudio();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            
+            if (type === 'break') {
+                osc.type = 'square';
+                osc.frequency.setValueAtTime(200, audioCtx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(50, audioCtx.currentTime + 0.1);
+                gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.1);
+            } else {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(400, audioCtx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(600, audioCtx.currentTime + 0.05);
+                gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.08);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.08);
+            }
+        }
+        
+        function SimplexNoise(seed) {
+            this.p = new Uint8Array(512);
+            for (let i = 0; i < 256; i++) this.p[i] = i;
+            for (let i = 255; i > 0; i--) {
+                seed = (seed * 16807) % 2147483647;
+                const n = seed % (i + 1), q = this.p[i];
+                this.p[i] = this.p[n]; this.p[n] = q;
+            }
+            for (let i = 0; i < 512; i++) this.p[i] = this.p[i & 255];
+        }
+        
+        SimplexNoise.prototype.noise2D = function(x, y) {
+            const F2 = 0.5 * (Math.sqrt(3) - 1), G2 = (3 - Math.sqrt(3)) / 6;
+            const s = (x + y) * F2, i = Math.floor(x + s), j = Math.floor(y + s);
+            const t = (i + j) * G2, x0 = x - (i - t), y0 = y - (j - t);
+            const i1 = x0 > y0 ? 1 : 0, j1 = x0 > y0 ? 0 : 1;
+            const x1 = x0 - i1 + G2, y1 = y0 - j1 + G2, x2 = x0 - 1 + 2 * G2, y2 = y0 - 1 + 2 * G2;
+            const ii = i & 255, jj = j & 255;
+            const grad = (h, x, y) => { const u = h < 4 ? x : y, v = h < 4 ? y : x; return ((h & 1) ? -u : u) + ((h & 2) ? -2 * v : 2 * v); };
+            let n0 = 0, n1 = 0, n2 = 0;
+            let t0 = 0.5 - x0*x0 - y0*y0;
+            if (t0 >= 0) { t0 *= t0; n0 = t0 * t0 * grad(this.p[ii + this.p[jj]], x0, y0); }
+            let t1 = 0.5 - x1*x1 - y1*y1;
+            if (t1 >= 0) { t1 *= t1; n1 = t1 * t1 * grad(this.p[ii + i1 + this.p[jj + j1]], x1, y1); }
+            let t2 = 0.5 - x2*x2 - y2*y2;
+            if (t2 >= 0) { t2 *= t2; n2 = t2 * t2 * grad(this.p[ii + 1 + this.p[jj + 1]], x2, y2); }
+            return 70 * (n0 + n1 + n2);
+        };
+
+        const _chunkSize = 16, _chunkHeight = 128;
+
+        const GROUND_HEIGHT = 8;
+
+        function getHeight(x, z) {
+            return GROUND_HEIGHT;
+        }
+
+        function getBiome(x, z) {
+            return 'plains';
+        }
+
+        function getBlock(x, y, z) {
+            if (y < 0 || y >= _chunkHeight) return BLOCKS.AIR;
+            const cx = (x >> 4) << 4, cz = (z >> 4) << 4;
+            const chunk = chunks.get(`${cx},${cz}`);
+            if (!chunk) return BLOCKS.AIR;
+            const lx = x - cx, lz = z - cz;
+            return chunk.blocks[lx + lz * _chunkSize + y * _chunkSize * _chunkSize] || BLOCKS.AIR;
+        }
+
+        function setBlock(x, y, z, type) {
+            if (y < 0 || y >= _chunkHeight) return;
+            const cx = (x >> 4) << 4, cz = (z >> 4) << 4;
+            const chunk = chunks.get(`${cx},${cz}`);
+            if (!chunk) return;
+            const lx = x - cx, lz = z - cz;
+            const idx = lx + lz * _chunkSize + y * _chunkSize * _chunkSize;
+            const oldType = chunk.blocks[idx];
+            if (oldType === type) return;
+            chunk.blocks[idx] = type;
+            chunk.dirty = true;
+        }
+
+        function generateChunk(cx, cz) {
+            const key = `${cx},${cz}`;
+            if (chunks.has(key)) return;
+            
+            const chunk = { blocks: new Uint8Array(_chunkSize * _chunkSize * _chunkHeight), meshes: [], dirty: true, cx, cz };
+            const positions = [];
+            
+            for (let x = 0; x < _chunkSize; x++) {
+                for (let z = 0; z < _chunkSize; z++) {
+                    const wx = cx + x, wz = cz + z;
+                    const h = getHeight(wx, wz);
+                    const biome = getBiome(wx, wz);
+                    
+                    for (let y = 0; y < h; y++) {
+                        let b = BLOCKS.AIR;
+                        
+                        if (y === 0) b = BLOCKS.STONE;
+                        else if (y < h - 1) b = BLOCKS.DIRT;
+                        else b = BLOCKS.GRASS;
+                        
+                        const idx = x + z * _chunkSize + y * _chunkSize * _chunkSize;
+                        chunk.blocks[idx] = b;
+                        if (b !== BLOCKS.AIR) positions.push({ x: x + 0.5, y: y + 0.5, z: z + 0.5, type: b });
+                    }
+                    
+                    if (h === GROUND_HEIGHT && noise.noise2D(wx * 0.08, wz * 0.08) > 0.9) {
+                        const th = 2 + Math.floor(noise.noise2D(wx * 0.15, wz * 0.15) * 2);
+                        for (let ty = 1; ty <= th; ty++) {
+                            if (h + ty < _chunkHeight) {
+                                const idx = x + z * _chunkSize + (h + ty) * _chunkSize * _chunkSize;
+                                chunk.blocks[idx] = BLOCKS.WOOD;
+                                positions.push({ x: x + 0.5, y: h + ty + 0.5, z: z + 0.5, type: BLOCKS.WOOD });
+                            }
+                        }
+                        for (let ly = 0; ly < 3; ly++) {
+                            for (let lx = -1; lx <= 1; lx++) {
+                                for (let lz = -1; lz <= 1; lz++) {
+                                    if (Math.abs(lx) + Math.abs(lz) === 2) continue;
+                                    const leafY = h + th + ly;
+                                    const lx2 = x + lx, lz2 = z + lz;
+                                    if (lx2 >= 0 && lx2 < _chunkSize && lz2 >= 0 && lz2 < _chunkSize && leafY < _chunkHeight) {
+                                        const idx = lx2 + lz2 * _chunkSize + leafY * _chunkSize * _chunkSize;
+                                        if (!chunk.blocks[idx]) {
+                                            chunk.blocks[idx] = BLOCKS.LEAVES;
+                                            positions.push({ x: lx2 + 0.5, y: leafY + 0.5, z: lz2 + 0.5, type: BLOCKS.LEAVES });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            chunks.set(key, chunk);
+            buildChunkMesh(chunk, positions);
+        }
+
+        function buildChunkMesh(chunk, positions) {
+            chunk.meshes.forEach(m => scene.remove(m));
+            chunk.meshes = [];
+            if (!positions.length) return;
+            
+            const typeGroups = {};
+            positions.forEach(p => {
+                if (!typeGroups[p.type]) typeGroups[p.type] = [];
+                typeGroups[p.type].push(p);
+            });
+            
+            Object.keys(typeGroups).forEach(type => {
+                const t = parseInt(type);
+                const c = BLOCK_COLORS[t];
+                const isTransObj = typeof c === 'object' && c.trans;
+                const mat = new THREE.MeshLambertMaterial({
+                    color: (typeof c === 'object' && c.t) ? c.t : (typeof c === 'number' ? c : 0x888888),
+                    transparent: isTransObj, opacity: isTransObj ? 0.5 : 1
+                });
+                
+                const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), mat, typeGroups[t].length);
+                typeGroups[t].forEach((p, i) => {
+                    _matrix.setPosition(p.x + chunk.cx, p.y, p.z + chunk.cz);
+                    mesh.setMatrixAt(i, _matrix);
+                });
+                mesh.instanceMatrix.needsUpdate = true;
+                scene.add(mesh);
+                chunk.meshes.push(mesh);
+            });
+        }
+
+        function updateChunkMesh(chunk) {
+            if (!chunk.dirty) return;
+            chunk.dirty = false;
+            const positions = [];
+            for (let x = 0; x < _chunkSize; x++) {
+                for (let z = 0; z < _chunkSize; z++) {
+                    for (let y = 0; y < _chunkHeight; y++) {
+                        const b = chunk.blocks[x + z * _chunkSize + y * _chunkSize * _chunkSize];
+                        if (b !== BLOCKS.AIR) positions.push({ x: x + 0.5, y: y + 0.5, z: z + 0.5, type: b });
+                    }
+                }
+            }
+            buildChunkMesh(chunk, positions);
+        }
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x87CEEB);
+            scene.fog = new THREE.Fog(0xc8e0f0, 5, 40);
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.copy(player.position);
+            camera.position.y += player.height;
+
+            renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('game-canvas'), antialias: false });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(1);
+
+            scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.7);
+            dirLight.position.set(30, 50, 30);
+            scene.add(dirLight);
+
+            for (let dx = -3; dx <= 3; dx++) {
+                for (let dz = -3; dz <= 3; dz++) {
+                    generateChunk(dx * 16, dz * 16);
+                }
+            }
+
+            setupUI();
+            setupControls();
+            
+            const hlGeo = new THREE.BoxGeometry(1.02, 1.02, 1.02);
+            const hlMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.25 });
+            highlightMesh = new THREE.Mesh(hlGeo, hlMat);
+            highlightMesh.visible = false;
+            scene.add(highlightMesh);
+
+            particleGeometry = new THREE.BoxGeometry(0.1, 0.1, 0.1);
+            particleMaterial = new THREE.MeshBasicMaterial({ transparent: true });
+
+            animate();
+        }
+
+        const BLOCK_COLORS_PRECOMPUTED = {};
+        Object.keys(BLOCK_COLORS).forEach(key => {
+            const c = BLOCK_COLORS[key];
+            if (!c) BLOCK_COLORS_PRECOMPUTED[key] = '#888';
+            else if (c.trans) BLOCK_COLORS_PRECOMPUTED[key] = '#' + (c.t || 0xcccccc).toString(16).padStart(6, '0');
+            else if (typeof c === 'object' && c.top) BLOCK_COLORS_PRECOMPUTED[key] = '#' + c.top.toString(16).padStart(6, '0');
+            else if (c.t) BLOCK_COLORS_PRECOMPUTED[key] = '#' + c.t.toString(16).padStart(6, '0');
+            else BLOCK_COLORS_PRECOMPUTED[key] = '#' + c.toString(16).padStart(6, '0');
+        });
+
+        function addItemToInventory(type, count = 1, durability = 0) {
+            if (!type) return 0;
+            
+            for (let i = 0; i < inventory.length; i++) {
+                if (inventory[i].type === type && inventory[i].count < 64) {
+                    const space = 64 - inventory[i].count;
+                    const add = Math.min(space, count);
+                    inventory[i].count += add;
+                    count -= add;
+                    if (count <= 0) return 0;
+                }
+            }
+            
+            for (let i = 0; i < inventory.length; i++) {
+                if (!inventory[i].type) {
+                    inventory[i] = { type, count: Math.min(count, 64), durability };
+                    count -= 64;
+                    break;
+                }
+            }
+            return Math.max(0, count);
+        }
+
+        function removeItemFromInventory(type, count = 1) {
+            for (let i = 0; i < inventory.length; i++) {
+                if (inventory[i].type === type) {
+                    const take = Math.min(inventory[i].count, count);
+                    inventory[i].count -= take;
+                    count -= take;
+                    if (inventory[i].count <= 0) inventory[i] = { type: null, count: 1, durability: 0 };
+                    if (count <= 0) return true;
+                }
+            }
+            return count <= 0;
+        }
+
+        function hasItem(type, count = 1) {
+            let total = 0;
+            for (let i = 0; i < inventory.length; i++) {
+                if (inventory[i].type === type) total += inventory[i].count;
+            }
+            return total >= count;
+        }
+
+        function updateHealthUI() {
+            const healthBar = document.getElementById('health-bar');
+            healthBar.innerHTML = '';
+            for (let i = 0; i < player.maxHealth; i += 2) {
+                const heart = document.createElement('div');
+                heart.className = 'health-heart' + (i >= player.health ? ' empty' : '');
+                healthBar.appendChild(heart);
+            }
+        }
+
+        function updateFoodUI() {
+            const foodBar = document.getElementById('food-bar');
+            foodBar.innerHTML = '';
+            for (let i = 0; i < player.maxFood; i += 2) {
+                const drum = document.createElement('div');
+                drum.className = 'food-drum' + (i >= player.food ? ' empty' : '');
+                foodBar.appendChild(drum);
+            }
+        }
+
+        function damagePlayer(amount) {
+            player.health = Math.max(0, player.health - amount);
+            updateHealthUI();
+            
+            const flash = document.createElement('div');
+            flash.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:red;opacity:0.3;pointer-events:none;z-index:200;animation:flash 0.2s forwards';
+            document.body.appendChild(flash);
+            setTimeout(() => flash.remove(), 200);
+            
+            if (player.health <= 0) {
+                respawnPlayer();
+            }
+        }
+
+        function healPlayer(amount) {
+            player.health = Math.min(player.maxHealth, player.health + amount);
+            updateHealthUI();
+        }
+
+        function eatFood(foodAmount, saturationAmount) {
+            if (player.food < player.maxFood) {
+                player.food = Math.min(player.maxFood, player.food + foodAmount);
+                player.saturation = Math.min(player.maxFood, player.saturation + saturationAmount);
+                updateFoodUI();
+            }
+        }
+
+        function respawnPlayer() {
+            player.position.set(32, GROUND_HEIGHT + 4, 32);
+            player.health = player.maxHealth;
+            player.food = player.maxFood;
+            player.velocity.set(0, 0, 0);
+            updateHealthUI();
+            updateFoodUI();
+        }
+
+        function setupUI() {
+            const hotbar = document.getElementById('hotbar');
+            hotbar.innerHTML = '';
+            for (let i = 0; i < 9; i++) {
+                const slot = document.createElement('div');
+                slot.className = `hotbar-slot ${i === selectedBlock ? 'selected' : ''}`;
+                slot.onclick = () => selectSlot(i);
+                hotbar.appendChild(slot);
+            }
+            
+            updateHotbarUI();
+            updateInventoryUI();
+            updateHealthUI();
+            updateFoodUI();
+            
+            document.querySelector('.crafting-close').onclick = closeCrafting;
+            document.querySelector('.furnace-close').onclick = closeFurnace;
+        }
+
+        function updateHotbarUI() {
+            const slots = document.querySelectorAll('.hotbar-slot');
+            slots.forEach((slot, i) => {
+                slot.innerHTML = `<span class="slot-number">${i + 1}</span>`;
+                const item = inventory[i];
+                if (item && item.type) {
+                    const preview = document.createElement('div');
+                    preview.className = 'block-preview';
+                    preview.style.background = BLOCK_COLORS_PRECOMPUTED[item.type] || '#888';
+                    slot.appendChild(preview);
+                    
+                    if (item.count > 1) {
+                        const count = document.createElement('span');
+                        count.className = 'slot-count';
+                        count.textContent = item.count;
+                        slot.appendChild(count);
+                    }
+                    
+                    const toolInfo = TOOL_TYPES[item.type];
+                    if (toolInfo && item.durability > 0) {
+                        const dur = document.createElement('span');
+                        dur.className = 'slot-durability';
+                        dur.textContent = item.durability;
+                        slot.appendChild(dur);
+                    }
+                }
+            });
+        }
+
+        function updateInventoryUI() {
+            const invGrid = document.querySelector('.inventory-grid');
+            invGrid.innerHTML = '';
+            
+            for (let i = 0; i < inventory.length; i++) {
+                const slot = document.createElement('div');
+                slot.className = 'inventory-slot' + (i === selectedInventorySlot ? ' selected' : '');
+                slot.onclick = () => { selectedInventorySlot = i; updateInventoryUI(); };
+                
+                const item = inventory[i];
+                if (item && item.type) {
+                    const preview = document.createElement('div');
+                    preview.className = 'block-preview';
+                    preview.style.background = BLOCK_COLORS_PRECOMPUTED[item.type] || '#888';
+                    slot.appendChild(preview);
+                    
+                    if (item.count > 1) {
+                        const count = document.createElement('span');
+                        count.className = 'slot-count';
+                        count.textContent = item.count;
+                        slot.appendChild(count);
+                    }
+                    
+                    const toolInfo = TOOL_TYPES[item.type];
+                    if (toolInfo && item.durability > 0) {
+                        const dur = document.createElement('span');
+                        dur.className = 'slot-durability';
+                        dur.textContent = item.durability;
+                        slot.appendChild(dur);
+                    }
+                }
+                invGrid.appendChild(slot);
+            }
+        }
+
+        function selectSlot(i) {
+            if (i >= 0 && i < HOTBAR_BLOCKS.length) {
+                selectedBlock = i;
+                document.querySelectorAll('.hotbar-slot').forEach((s, idx) => s.classList.toggle('selected', idx === i));
+            }
+        }
+
+        function toggleInventory() {
+            if (craftingOpen) { closeCrafting(); return; }
+            if (furnaceOpen) { closeFurnace(); return; }
+            
+            showInventory = !showInventory;
+            document.getElementById('inventory').classList.toggle('visible', showInventory);
+            if (showInventory) document.exitPointerLock();
+            else if (gameStarted) document.body.requestPointerLock();
+        }
+
+        function setupControls() {
+            document.addEventListener('keydown', e => {
+                if (!keys[e.code]) keysJustDown[e.code] = true;
+                keys[e.code] = true;
+                if (e.code >= 'Digit1' && e.code <= 'Digit9') selectSlot(parseInt(e.code[5]) - 1);
+                if (e.code === 'F3') { e.preventDefault(); showDebug = !showDebug; document.getElementById('debug').classList.toggle('visible', showDebug); }
+                if (e.code === 'KeyE') toggleInventory();
+                if (e.code === 'KeyC') { 
+                    if (!craftingOpen && !furnaceOpen) {
+                        openCrafting();
+                    }
+                }
+                if (e.code === 'Escape') {
+                    if (showInventory) toggleInventory();
+                    else if (craftingOpen) closeCrafting();
+                    else if (furnaceOpen) closeFurnace();
+                }
+            });
+            document.addEventListener('keyup', e => keys[e.code] = false);
+
+            document.addEventListener('mousemove', e => {
+                if (!isLocked || showInventory || craftingOpen || furnaceOpen) return;
+                yaw -= e.movementX * 0.002;
+                pitch -= e.movementY * 0.002;
+                pitch = Math.max(-1.5, Math.min(1.5, pitch));
+            });
+
+            document.addEventListener('click', () => {
+                if (!gameStarted) { startGame(); return; }
+                if (!isLocked && !showInventory && !craftingOpen && !furnaceOpen) document.body.requestPointerLock();
+            });
+
+            document.addEventListener('pointerlockchange', () => { isLocked = document.pointerLockElement === document.body; });
+
+            document.addEventListener('mousedown', e => {
+                if (!isLocked) return;
+                if (showInventory || craftingOpen || furnaceOpen) return;
+                
+                if (e.button === 0) {
+                    const selectedItem = inventory[selectedInventorySlot];
+                    if (selectedItem && selectedItem.type === BLOCKS.CRAFTING_TABLE) {
+                        openCrafting();
+                        return;
+                    }
+                    if (selectedItem && selectedItem.type === BLOCKS.FURNACE) {
+                        openFurnace();
+                        return;
+                    }
+                    breakBlock();
+                }
+                else if (e.button === 2) placeBlock();
+            });
+
+            document.addEventListener('contextmenu', e => e.preventDefault());
+            window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
+        }
+
+        function startGame() {
+            gameStarted = true;
+            document.getElementById('instructions').style.display = 'none';
+            document.body.requestPointerLock();
+        }
+
+        function raycast() {
+            _origin.copy(camera.position);
+            _dir.set(0, 0, -1).applyQuaternion(camera.quaternion);
+            
+            for (let d = 0; d < reachDistance; d += 0.15) {
+                _v0.copy(_origin).addScaledVector(_dir, d);
+                const bx = Math.floor(_v0.x), by = Math.floor(_v0.y), bz = Math.floor(_v0.z);
+                const b = getBlock(bx, by, bz);
+                if (b !== BLOCKS.AIR && b !== BLOCKS.WATER && b !== BLOCKS.LEAVES) {
+                    return { x: bx, y: by, z: bz, block: b };
+                }
+            }
+            return null;
+        }
+
+        function breakBlock() {
+            const hit = raycast();
+            if (hit && hit.block !== BLOCKS.STONE) {
+                spawnParticles(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5, BLOCK_COLORS[hit.block], 8);
+                playSound('break');
+                
+                let dropType = hit.block;
+                if (hit.block === BLOCKS.COBBLE) dropType = BLOCKS.COBBLESTONE;
+                else if (hit.block === BLOCKS.GRASS) dropType = BLOCKS.DIRT;
+                
+                addItemToInventory(dropType, 1);
+                setBlock(hit.x, hit.y, hit.z, BLOCKS.AIR);
+                updateHotbarUI();
+                updateInventoryUI();
+                
+                const selectedItem = inventory[selectedInventorySlot];
+                if (selectedItem && TOOL_TYPES[selectedItem.type]) {
+                    selectedItem.durability--;
+                    if (selectedItem.durability <= 0) {
+                        selectedItem.type = null;
+                        selectedItem.count = 1;
+                        selectedItem.durability = 0;
+                    }
+                    updateHotbarUI();
+                    updateInventoryUI();
+                }
+            }
+        }
+
+        function spawnParticles(x, y, z, color, count) {
+            const c = color && color.t ? color.t : (color || 0x888888);
+            for (let i = 0; i < count; i++) {
+                const mat = particleMaterial.clone();
+                mat.color.setHex(c);
+                const mesh = new THREE.Mesh(particleGeometry, mat);
+                mesh.position.set(x, y, z);
+                mesh.userData = {
+                    velocity: new THREE.Vector3(
+                        (Math.random() - 0.5) * 3,
+                        Math.random() * 3 + 1,
+                        (Math.random() - 0.5) * 3
+                    ),
+                    life: 1.0
+                };
+                scene.add(mesh);
+                particles.push(mesh);
+            }
+        }
+
+        function updateParticles(dt) {
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.userData.velocity.y -= 10 * dt;
+                p.position.addScaledVector(p.userData.velocity, dt);
+                p.userData.life -= dt * 2;
+                p.material.opacity = p.userData.life;
+                p.rotation.x += dt * 5;
+                p.rotation.y += dt * 5;
+                
+                if (p.userData.life <= 0) {
+                    scene.remove(p);
+                    p.material.dispose();
+                    particles.splice(i, 1);
+                }
+            }
+        }
+
+        function placeBlock() {
+            const hit = raycast();
+            if (!hit) return;
+            
+            const selectedItem = inventory[selectedInventorySlot];
+            if (!selectedItem || !selectedItem.type) return;
+            
+            const placeType = selectedItem.type;
+            if (placeType === BLOCKS.WATER) return;
+            
+            _dir.set(0, 0, -1).applyQuaternion(camera.quaternion);
+            let nx = 0, ny = 0, nz = 0;
+            const ax = Math.abs(_dir.x), ay = Math.abs(_dir.y), az = Math.abs(_dir.z);
+            if (ax > ay && ax > az) nx = Math.sign(_dir.x);
+            else if (ay > az) ny = Math.sign(_dir.y);
+            else nz = Math.sign(_dir.z);
+            
+            const nx2 = hit.x + nx, ny2 = hit.y + ny, nz2 = hit.z + nz;
+            
+            const px = player.position.x, py = player.position.y, pz = player.position.z;
+            if (nx2 < px + 0.3 && nx2 + 1 > px - 0.3 && ny2 < py + player.height + 0.3 && ny2 + 1 > py - 0.3 && nz2 < pz + 0.3 && nz2 + 1 > pz - 0.3) return;
+            
+            spawnParticles(nx2 + 0.5, ny2 + 0.5, nz2 + 0.5, BLOCK_COLORS[placeType], 4);
+            playSound('place');
+            setBlock(nx2, ny2, nz2, placeType);
+            
+            selectedItem.count--;
+            if (selectedItem.count <= 0) selectedItem.type = null;
+            
+            updateHotbarUI();
+            updateInventoryUI();
+        }
+
+        function updateChunks() {
+            const px = Math.floor(player.position.x / 16);
+            const pz = Math.floor(player.position.z / 16);
+            
+            for (let dx = -3; dx <= 3; dx++) {
+                for (let dz = -3; dz <= 3; dz++) {
+                    generateChunk((px + dx) * 16, (pz + dz) * 16);
+                }
+            }
+            
+            chunks.forEach((chunk, key) => {
+                const cx = chunk.cx + 8, cz = chunk.cz + 8;
+                const dist = Math.sqrt((cx - player.position.x) ** 2 + (cz - player.position.z) ** 2);
+                
+                chunk.meshes.forEach(mesh => {
+                    mesh.visible = dist < 60;
+                });
+            });
+        }
+
+        function checkCollision(pos) {
+            const hw = player.width / 2;
+            const checkPoints = [
+                [pos.x - hw, pos.y, pos.z - hw], [pos.x + hw, pos.y, pos.z - hw],
+                [pos.x - hw, pos.y, pos.z + hw], [pos.x + hw, pos.y, pos.z + hw],
+                [pos.x - hw, pos.y + player.height, pos.z - hw], [pos.x + hw, pos.y + player.height, pos.z - hw],
+                [pos.x - hw, pos.y + player.height, pos.z + hw], [pos.x + hw, pos.y + player.height, pos.z + hw]
+            ];
+            return checkPoints.some(([x, y, z]) => getBlock(Math.floor(x), Math.floor(y), Math.floor(z)) !== BLOCKS.AIR);
+        }
+
+        function updatePlayer(dt) {
+            if (!isLocked || showInventory) return;
+            
+            const forward = _v0.set(0, 0, -1).applyAxisAngle(_up, yaw);
+            const right = _v2.set(1, 0, 0).applyAxisAngle(_up, yaw);
+            
+            _v3.set(0, 0, 0);
+            if (keys['ArrowUp']) _v3.add(forward);
+            if (keys['ArrowDown']) _v3.sub(forward);
+            if (keys['ArrowLeft']) _v3.sub(right);
+            if (keys['ArrowRight']) _v3.add(right);
+            
+            if (_v3.length() > 0) _v3.normalize().multiplyScalar(moveSpeed * dt);
+            
+            _v1.copy(player.position); _v1.x += _v3.x;
+            if (!checkCollision(_v1)) player.position.x = _v1.x;
+            
+            _v1.copy(player.position); _v1.z += _v3.z;
+            if (!checkCollision(_v1)) player.position.z = _v1.z;
+
+            if (keysJustDown['Space'] && player.onGround) { player.velocity.y = jumpForce; player.onGround = false; }
+            keysJustDown['Space'] = false;
+            
+            player.velocity.y -= gravity * dt;
+            _v1.copy(player.position); _v1.y += player.velocity.y * dt;
+            
+            if (!checkCollision(_v1)) {
+                player.position.y = _v1.y;
+                player.onGround = false;
+            } else {
+                if (player.velocity.y < 0) player.onGround = true;
+                player.velocity.y = 0;
+            }
+
+            if (player.position.y < 2) { player.position.set(32, GROUND_HEIGHT + 4, 32); player.velocity.y = 0; }
+
+            const targetCamY = player.position.y + player.height - 0.2;
+            camera.position.x += (player.position.x - camera.position.x) * 0.15;
+            camera.position.y += (targetCamY - camera.position.y) * 0.15;
+            camera.position.z += (player.position.z - camera.position.z) * 0.15;
+            camera.rotation.order = 'YXZ';
+            camera.rotation.y = yaw;
+            camera.rotation.x = pitch;
+        }
+
+        function updateTime(dt) {
+            timeOfDay = (timeOfDay + dt / 600) % 1;
+            const t = Math.sin(timeOfDay * Math.PI * 2);
+            const skyColor = new THREE.Color();
+            if (timeOfDay < 0.25) skyColor.setHex(0x87CEEB);
+            else if (timeOfDay < 0.75) skyColor.lerpColors(new THREE.Color(0x87CEEB), new THREE.Color(0x0a0a1a), Math.max(0, t));
+            else skyColor.lerpColors(new THREE.Color(0x0a0a1a), new THREE.Color(0x87CEEB), Math.max(0, -t));
+            scene.background = skyColor;
+            scene.fog.color = skyColor;
+            
+            isNight = timeOfDay > 0.4 && timeOfDay < 0.8;
+            
+            const dirLight = scene.children.find(c => c.isDirectionalLight);
+            if (dirLight) {
+                const brightness = isNight ? 0.2 : 0.7;
+                dirLight.intensity = brightness;
+            }
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const now = performance.now();
+            const delta = Math.min((now - lastTime) / 1000, 0.05);
+            lastTime = now;
+
+            frameCount++;
+            if (frameCount % 30 === 0) {
+                fps = Math.round(1 / delta);
+                document.getElementById('debug-fps').textContent = `FPS: ${fps}`;
+                document.getElementById('debug-pos').textContent = `Pos: ${player.position.x.toFixed(1)}, ${player.position.y.toFixed(1)}, ${player.position.z.toFixed(1)}`;
+            }
+
+            updatePlayer(delta);
+            updateChunks();
+            updateParticles(delta);
+            updateTime(delta);
+            updateMobs(delta);
+            
+            if (furnaceOpen || furnaceBurnTime > 0 || furnaceInput) {
+                updateFurnace(delta);
+            }
+
+            chunks.forEach(chunk => { if (chunk.dirty) updateChunkMesh(chunk); });
+
+            const hit = raycast();
+            if (hit && highlightMesh && !showInventory && !craftingOpen && !furnaceOpen) {
+                highlightMesh.position.set(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5);
+                highlightMesh.visible = true;
+            } else if (highlightMesh) {
+                highlightMesh.visible = false;
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        init();
+        
+        setTimeout(() => {
+            spawnPassiveMobs();
+        }, 2000);
+    </script>
+</body>
+</html>
