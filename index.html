@@ -306,7 +306,7 @@
             RAW_BEEF: 43, COOKED_BEEF: 44, RAW_CHICKEN: 45, COOKED_CHICKEN: 46,
             PORK: 47, COOKED_PORK: 48, WHEAT: 49, BREAD: 50, EGG: 51,
             STRING: 52, BOW: 53, ARROW: 54, SLIME_BALL: 55,
-            STONE_HOE: 56, IRON_HOE: 57, DIAMOND_HOE: 58
+            STONE_HOE: 56, IRON_HOE: 57, DIAMOND_HOE: 58, FLOWER_RED: 59, FLOWER_YELLOW: 60, GRASS_BLOCK: 61
         };
 
         const BLOCK_COLORS = {
@@ -339,7 +339,7 @@
             [BLOCKS.EGG]: 0xfffacd, [BLOCKS.STRING]: 0xf5f5dc,
             [BLOCKS.BOW]: 0x8b4513, [BLOCKS.ARROW]: 0x8b6914,
             [BLOCKS.SLIME_BALL]: 0x32cd32,
-            [BLOCKS.STONE_HOE]: 0x7a7a7a, [BLOCKS.IRON_HOE]: 0xc0c0c0, [BLOCKS.DIAMOND_HOE]: 0x00ffff
+            [BLOCKS.STONE_HOE]: 0x7a7a7a, [BLOCKS.IRON_HOE]: 0xc0c0c0, [BLOCKS.DIAMOND_HOE]: 0x00ffff, [BLOCKS.FLOWER_RED]: 0xff4444, [BLOCKS.FLOWER_YELLOW]: 0xffff44, [BLOCKS.GRASS_BLOCK]: 0x4a9c2d
         };
 
         const TOOL_TYPES = {
@@ -370,7 +370,7 @@
         let scene, camera, renderer;
         let chunks = new Map();
         let player = { 
-            position: new THREE.Vector3(32, 35, 32), 
+            position: new THREE.Vector3(32, 50, 32), 
             velocity: new THREE.Vector3(), 
             onGround: false, 
             height: 1.7, 
@@ -595,13 +595,26 @@
         }
 
         function spawnPassiveMobs() {
-            for (let i = 0; i < 5; i++) {
-                const type = PASSIVE_MOBS[Math.floor(Math.random() * PASSIVE_MOBS.length)];
+            for (let i = 0; i < 8; i++) {
                 const angle = Math.random() * Math.PI * 2;
-                const dist = 5 + Math.random() * 15;
+                const dist = 5 + Math.random() * 20;
                 const x = player.position.x + Math.cos(angle) * dist;
                 const z = player.position.z + Math.sin(angle) * dist;
-                spawnMob(type, x, GROUND_HEIGHT + 1, z);
+                const h = getHeight(Math.floor(x), Math.floor(z));
+                const biomeData = getBiomeData(Math.floor(x), Math.floor(z));
+                const biome = biomeData.type;
+                
+                // Different mobs in different biomes
+                let type;
+                if (biome === 'taiga' || biome === 'mountains') {
+                    type = i % 2 === 0 ? MOB_TYPES.SHEEP : MOB_TYPES.PIG;
+                } else if (biome === 'desert') {
+                    continue; // No passive mobs in desert
+                } else {
+                    type = PASSIVE_MOBS[Math.floor(Math.random() * PASSIVE_MOBS.length)];
+                }
+                
+                spawnMob(type, x, h + 1, z);
             }
         }
 
@@ -948,12 +961,114 @@
 
         const GROUND_HEIGHT = 8;
 
-        function getHeight(x, z) {
-            return GROUND_HEIGHT;
+        // Multi-octave noise for terrain
+        function fbm(x, z, octaves, persistence, scale) {
+            let value = 0;
+            let amplitude = 1;
+            let frequency = scale;
+            let maxValue = 0;
+            
+            for (let i = 0; i < octaves; i++) {
+                value += amplitude * noise.noise2D(x * frequency, z * frequency);
+                maxValue += amplitude;
+                amplitude *= persistence;
+                frequency *= 2;
+            }
+            
+            return value / maxValue;
         }
 
-        function getBiome(x, z) {
-            return 'plains';
+        function getHeight(x, z) {
+            // Base terrain with multiple octaves
+            const baseHeight = fbm(x * 0.01, z * 0.01, 6, 0.5, 1) * 20;
+            
+            // Add detail
+            const detail = fbm(x * 0.05, z * 0.05, 3, 0.5, 1) * 3;
+            
+            // Large scale variation (hills/valleys)
+            const largeScale = fbm(x * 0.003, z * 0.003, 2, 0.5, 1) * 15;
+            
+            let h = Math.floor(GROUND_HEIGHT + baseHeight + detail + largeScale);
+            
+            // Biome-based height modifiers
+            const biomeData = getBiomeData(x, z);
+            if (biomeData.type === 'mountains') h += 15;
+            else if (biomeData.type === 'hills') h += 8;
+            else if (biomeData.type === 'desert') h -= 2;
+            
+            // Clamp to valid range
+            return Math.max(1, Math.min(_chunkHeight - 10, h));
+        }
+
+        function getBiomeData(x, z) {
+            // Temperature and moisture determine biome
+            const temp = fbm(x * 0.008, z * 0.008, 2, 0.5, 1);
+            const moisture = fbm(x * 0.008 + 1000, z * 0.008 + 1000, 2, 0.5, 1);
+            
+            // Calculate height independently to avoid recursion
+            const baseHeight = fbm(x * 0.01, z * 0.01, 6, 0.5, 1) * 20;
+            const detail = fbm(x * 0.05, z * 0.05, 3, 0.5, 1) * 3;
+            const largeScale = fbm(x * 0.003, z * 0.003, 2, 0.5, 1) * 15;
+            const height = Math.floor(GROUND_HEIGHT + baseHeight + detail + largeScale);
+            
+            // High elevation = mountains/snow
+            if (height > GROUND_HEIGHT + 20) {
+                return { type: 'mountains', tree: false };
+            }
+            if (height > GROUND_HEIGHT + 12) {
+                return { type: 'hills', tree: false };
+            }
+            
+            // Low moisture = desert
+            if (moisture < -0.3) {
+                return { type: 'desert', tree: false };
+            }
+            // High moisture + cold = taiga
+            if (moisture > 0.3 && temp < 0.1) {
+                return { type: 'taiga', tree: 'pine' };
+            }
+            // Very high temp + low moisture = savanna
+            if (temp > 0.5 && moisture < 0) {
+                return { type: 'savanna', tree: false };
+            }
+            // Medium moisture = forest
+            if (moisture > 0.1 && temp > -0.2 && temp < 0.4) {
+                return { type: 'forest', tree: true };
+            }
+            // Default = plains
+            return { type: 'plains', tree: Math.random() > 0.7 };
+        }
+
+
+
+        function getSurfaceBlock(biome, y, height) {
+            // Snow on mountains
+            if (biome === 'mountains' && y >= height - 2) {
+                return BLOCKS.SNOW;
+            }
+            // Sand in desert
+            if (biome === 'desert') {
+                return BLOCKS.SAND;
+            }
+            // Snow in taiga
+            if (biome === 'taiga' && y >= height - 1) {
+                return BLOCKS.SNOW;
+            }
+            return BLOCKS.GRASS;
+        }
+
+        function getUndergroundBlock(y, height, biome) {
+            // Stone below
+            if (y <= 5) return BLOCKS.STONE;
+            
+            // Dirt layer
+            const dirtDepth = biome === 'desert' ? 2 : 3;
+            if (y < height - dirtDepth) {
+                return BLOCKS.DIRT;
+            }
+            
+            // Surface
+            return getSurfaceBlock(biome, y, height);
         }
 
         function getBlock(x, y, z) {
@@ -978,6 +1093,133 @@
             chunk.dirty = true;
         }
 
+        // Ore generation function
+        function getOre(x, y, z) {
+            // Coal - common, from y=0 to y=60
+            if (noise.noise2D(x * 0.1, y * 0.1 + z * 0.1) > 0.7 && y < 60) {
+                return BLOCKS.COAL_ORE;
+            }
+            // Iron - less common, y=0 to y=40
+            if (noise.noise2D(x * 0.12 + 100, y * 0.12 + z * 0.12) > 0.75 && y < 40) {
+                return BLOCKS.IRON_ORE;
+            }
+            // Gold - rare, y=0 to y=20
+            if (noise.noise2D(x * 0.14 + 200, y * 0.14 + z * 0.14) > 0.82 && y < 20) {
+                return BLOCKS.GOLD_ORE;
+            }
+            // Diamond - very rare, y=0 to y=12
+            if (noise.noise2D(x * 0.16 + 300, y * 0.16 + z * 0.16) > 0.88 && y < 12) {
+                return BLOCKS.DIAMOND_ORE;
+            }
+            return BLOCKS.STONE;
+        }
+
+        // Cave generation
+        function isCave(x, y, z) {
+            if (y < 5 || y > 50) return false;
+            const caveNoise = fbm(x * 0.03, z * 0.03, 3, 0.5, 1);
+            const tunnelNoise = Math.abs(noise.noise2D(x * 0.05 + y * 0.02, z * 0.05));
+            return caveNoise > 0.3 && tunnelNoise > 0.6;
+        }
+
+        // Tree generation
+        function generateTree(chunk, x, z, h, biomeData, positions) {
+            const treeType = biomeData.tree;
+            if (!treeType) return;
+            
+            const lx = x, lz = z;
+            let trunkHeight, leafRadius;
+            
+            if (treeType === 'pine') {
+                // Pine tree (taiga)
+                trunkHeight = 6 + Math.floor(Math.random() * 3);
+                // Spruce wood
+                for (let ty = 1; ty <= trunkHeight; ty++) {
+                    if (h + ty < _chunkHeight) {
+                        const idx = lx + lz * _chunkSize + (h + ty) * _chunkSize * _chunkSize;
+                        chunk.blocks[idx] = BLOCKS.WOOD;
+                        positions.push({ x: lx + 0.5, y: h + ty + 0.5, z: lz + 0.5, type: BLOCKS.WOOD });
+                    }
+                }
+                // Triangle leaves
+                for (let ly = 0; ly < 4; ly++) {
+                    const radius = ly < 3 ? 1 : 0;
+                    for (let lx2 = -radius; lx2 <= radius; lx2++) {
+                        for (let lz2 = -radius; lz2 <= radius; lz2++) {
+                            if (Math.abs(lx2) + Math.abs(lz2) > radius + 1) continue;
+                            const leafY = h + trunkHeight - 1 + ly;
+                            const lx3 = lx + lx2, lz3 = lz + lz2;
+                            if (lx3 >= 0 && lx3 < _chunkSize && lz3 >= 0 && lz3 < _chunkSize && leafY < _chunkHeight) {
+                                const idx = lx3 + lz3 * _chunkSize + leafY * _chunkSize * _chunkSize;
+                                if (!chunk.blocks[idx]) {
+                                    chunk.blocks[idx] = BLOCKS.LEAVES;
+                                    positions.push({ x: lx3 + 0.5, y: leafY + 0.5, z: lz3 + 0.5, type: BLOCKS.LEAVES });
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Different tree styles based on biome
+                if (biomeData.type === 'savanna') {
+                    // Acacia style - short trunk, flat top
+                    trunkHeight = 3;
+                    for (let ty = 1; ty <= trunkHeight; ty++) {
+                        if (h + ty < _chunkHeight) {
+                            const idx = lx + lz * _chunkSize + (h + ty) * _chunkSize * _chunkSize;
+                            chunk.blocks[idx] = BLOCKS.WOOD;
+                            positions.push({ x: lx + 0.5, y: h + ty + 0.5, z: lz + 0.5, type: BLOCKS.WOOD });
+                        }
+                    }
+                    // Flat leaf canopy
+                    for (let ly = 0; ly < 2; ly++) {
+                        for (let lx2 = -2; lx2 <= 2; lx2++) {
+                            for (let lz2 = -2; lz2 <= 2; lz2++) {
+                                const leafY = h + trunkHeight + ly;
+                                const lx3 = lx + lx2, lz3 = lz + lz2;
+                                if (lx3 >= 0 && lx3 < _chunkSize && lz3 >= 0 && lz3 < _chunkSize && leafY < _chunkHeight) {
+                                    const idx = lx3 + lz3 * _chunkSize + leafY * _chunkSize * _chunkSize;
+                                    if (!chunk.blocks[idx]) {
+                                        chunk.blocks[idx] = BLOCKS.LEAVES;
+                                        positions.push({ x: lx3 + 0.5, y: leafY + 0.5, z: lz3 + 0.5, type: BLOCKS.LEAVES });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    return;
+                }
+                
+                // Regular oak tree
+                trunkHeight = 3 + Math.floor(Math.random() * 2);
+                for (let ty = 1; ty <= trunkHeight; ty++) {
+                    if (h + ty < _chunkHeight) {
+                        const idx = lx + lz * _chunkSize + (h + ty) * _chunkSize * _chunkSize;
+                        chunk.blocks[idx] = BLOCKS.WOOD;
+                        positions.push({ x: lx + 0.5, y: h + ty + 0.5, z: lz + 0.5, type: BLOCKS.WOOD });
+                    }
+                }
+                // Leaves
+                for (let ly = -1; ly <= 2; ly++) {
+                    for (let lx2 = -2; lx2 <= 2; lx2++) {
+                        for (let lz2 = -2; lz2 <= 2; lz2++) {
+                            if (Math.abs(lx2) === 2 && Math.abs(lz2) === 2) continue;
+                            if (ly === 2 && (Math.abs(lx2) > 1 || Math.abs(lz2) > 1)) continue;
+                            const leafY = h + trunkHeight + ly;
+                            const lx3 = lx + lx2, lz3 = lz + lz2;
+                            if (lx3 >= 0 && lx3 < _chunkSize && lz3 >= 0 && lz3 < _chunkSize && leafY < _chunkHeight) {
+                                const idx = lx3 + lz3 * _chunkSize + leafY * _chunkSize * _chunkSize;
+                                if (!chunk.blocks[idx]) {
+                                    chunk.blocks[idx] = BLOCKS.LEAVES;
+                                    positions.push({ x: lx3 + 0.5, y: leafY + 0.5, z: lz3 + 0.5, type: BLOCKS.LEAVES });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         function generateChunk(cx, cz) {
             const key = `${cx},${cz}`;
             if (chunks.has(key)) return;
@@ -989,43 +1231,55 @@
                 for (let z = 0; z < _chunkSize; z++) {
                     const wx = cx + x, wz = cz + z;
                     const h = getHeight(wx, wz);
-                    const biome = getBiome(wx, wz);
+                    const biomeData = getBiomeData(wx, wz);
+                    const biome = biomeData.type;
                     
                     for (let y = 0; y < h; y++) {
-                        let b = BLOCKS.AIR;
+                        let b;
                         
-                        if (y === 0) b = BLOCKS.STONE;
-                        else if (y < h - 1) b = BLOCKS.DIRT;
-                        else b = BLOCKS.GRASS;
+                        // Check for caves
+                        if (isCave(wx, y, wz)) {
+                            b = BLOCKS.AIR;
+                        } else if (y === 0) {
+                            b = BLOCKS.STONE;
+                        } else if (y < h - 4) {
+                            // Ore generation in stone layer
+                            b = getOre(wx, y, wz);
+                        } else {
+                            b = getUndergroundBlock(y, h, biome);
+                        }
                         
                         const idx = x + z * _chunkSize + y * _chunkSize * _chunkSize;
                         chunk.blocks[idx] = b;
                         if (b !== BLOCKS.AIR) positions.push({ x: x + 0.5, y: y + 0.5, z: z + 0.5, type: b });
                     }
                     
-                    if (h === GROUND_HEIGHT && noise.noise2D(wx * 0.08, wz * 0.08) > 0.9) {
-                        const th = 2 + Math.floor(noise.noise2D(wx * 0.15, wz * 0.15) * 2);
-                        for (let ty = 1; ty <= th; ty++) {
-                            if (h + ty < _chunkHeight) {
-                                const idx = x + z * _chunkSize + (h + ty) * _chunkSize * _chunkSize;
-                                chunk.blocks[idx] = BLOCKS.WOOD;
-                                positions.push({ x: x + 0.5, y: h + ty + 0.5, z: z + 0.5, type: BLOCKS.WOOD });
+                    // Tree generation based on biome
+                    if (biomeData.tree && noise.noise2D(wx * 0.5, wz * 0.5) > 0.6) {
+                        generateTree(chunk, x, z, h, biomeData, positions);
+                    }
+                    
+                    // Flowers and grass decoration
+                    if (biome !== 'desert' && biome !== 'mountains' && h > GROUND_HEIGHT) {
+                        const decorNoise = noise.noise2D(wx * 0.3 + 500, wz * 0.3 + 500);
+                        if (decorNoise > 0.7) {
+                            const flowerType = decorNoise > 0.85 ? BLOCKS.FLOWER_RED : (decorNoise > 0.8 ? BLOCKS.FLOWER_YELLOW : BLOCKS.GRASS_BLOCK);
+                            const idx = x + z * _chunkSize + (h + 1) * _chunkSize * _chunkSize;
+                            if (!chunk.blocks[idx]) {
+                                chunk.blocks[idx] = flowerType;
+                                positions.push({ x: x + 0.5, y: h + 1 + 0.5, z: z + 0.5, type: flowerType });
                             }
                         }
-                        for (let ly = 0; ly < 3; ly++) {
-                            for (let lx = -1; lx <= 1; lx++) {
-                                for (let lz = -1; lz <= 1; lz++) {
-                                    if (Math.abs(lx) + Math.abs(lz) === 2) continue;
-                                    const leafY = h + th + ly;
-                                    const lx2 = x + lx, lz2 = z + lz;
-                                    if (lx2 >= 0 && lx2 < _chunkSize && lz2 >= 0 && lz2 < _chunkSize && leafY < _chunkHeight) {
-                                        const idx = lx2 + lz2 * _chunkSize + leafY * _chunkSize * _chunkSize;
-                                        if (!chunk.blocks[idx]) {
-                                            chunk.blocks[idx] = BLOCKS.LEAVES;
-                                            positions.push({ x: lx2 + 0.5, y: leafY + 0.5, z: lz2 + 0.5, type: BLOCKS.LEAVES });
-                                        }
-                                    }
-                                }
+                    }
+                    
+                    // Water in low areas (desert oasis, rivers)
+                    const waterLevel = GROUND_HEIGHT - 2;
+                    if (h < waterLevel) {
+                        for (let wy = h; wy <= waterLevel; wy++) {
+                            const idx = x + z * _chunkSize + wy * _chunkSize * _chunkSize;
+                            if (!chunk.blocks[idx]) {
+                                chunk.blocks[idx] = BLOCKS.WATER;
+                                positions.push({ x: x + 0.5, y: wy + 0.5, z: z + 0.5, type: BLOCKS.WATER });
                             }
                         }
                     }
@@ -1085,7 +1339,7 @@
         function init() {
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x87CEEB);
-            scene.fog = new THREE.Fog(0xc8e0f0, 5, 40);
+            scene.fog = new THREE.Fog(0xc8e0f0, 10, 80);
 
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
             camera.position.copy(player.position);
@@ -1574,7 +1828,17 @@
                 player.velocity.y = 0;
             }
 
-            if (player.position.y < 2) { player.position.set(32, GROUND_HEIGHT + 4, 32); player.velocity.y = 0; }
+            // Respawn if fallen too far or stuck
+            if (player.position.y < 2) {
+                const spawnHeight = getHeight(Math.floor(player.position.x), Math.floor(player.position.z));
+                player.position.set(player.position.x, spawnHeight + 10, player.position.z);
+                player.velocity.y = 0;
+            }
+            // Spawn at world start
+            if (player.position.x === 32 && player.position.y > 100) {
+                const spawnHeight = getHeight(32, 32);
+                player.position.set(32, spawnHeight + 5, 32);
+            }
 
             const targetCamY = player.position.y + player.height - 0.2;
             camera.position.x += (player.position.x - camera.position.x) * 0.15;
@@ -1589,9 +1853,28 @@
             timeOfDay = (timeOfDay + dt / 600) % 1;
             const t = Math.sin(timeOfDay * Math.PI * 2);
             const skyColor = new THREE.Color();
-            if (timeOfDay < 0.25) skyColor.setHex(0x87CEEB);
-            else if (timeOfDay < 0.75) skyColor.lerpColors(new THREE.Color(0x87CEEB), new THREE.Color(0x0a0a1a), Math.max(0, t));
-            else skyColor.lerpColors(new THREE.Color(0x0a0a1a), new THREE.Color(0x87CEEB), Math.max(0, -t));
+            
+            // More detailed day/night cycle
+            if (timeOfDay < 0.2) {
+                // Dawn
+                skyColor.lerpColors(new THREE.Color(0x1a1a2e), new THREE.Color(0xff9966), timeOfDay * 5);
+            } else if (timeOfDay < 0.3) {
+                // Morning to day
+                skyColor.lerpColors(new THREE.Color(0xff9966), new THREE.Color(0x87CEEB), (timeOfDay - 0.2) * 10);
+            } else if (timeOfDay < 0.7) {
+                // Day
+                skyColor.setHex(0x87CEEB);
+            } else if (timeOfDay < 0.8) {
+                // Afternoon to dusk
+                skyColor.lerpColors(new THREE.Color(0x87CEEB), new THREE.Color(0xff6633), (timeOfDay - 0.7) * 10);
+            } else if (timeOfDay < 0.9) {
+                // Dusk to night
+                skyColor.lerpColors(new THREE.Color(0xff6633), new THREE.Color(0x0a0a1a), (timeOfDay - 0.8) * 10);
+            } else {
+                // Night
+                skyColor.setHex(0x0a0a1a);
+            }
+            
             scene.background = skyColor;
             scene.fog.color = skyColor;
             
@@ -1599,7 +1882,14 @@
             
             const dirLight = scene.children.find(c => c.isDirectionalLight);
             if (dirLight) {
-                const brightness = isNight ? 0.2 : 0.7;
+                let brightness;
+                if (timeOfDay < 0.25 || timeOfDay > 0.85) {
+                    brightness = 0.2;
+                } else if (timeOfDay < 0.35 || timeOfDay > 0.75) {
+                    brightness = 0.5;
+                } else {
+                    brightness = 0.8;
+                }
                 dirLight.intensity = brightness;
             }
         }
