@@ -1791,40 +1791,74 @@
                 [pos.x - hw, pos.y + player.height, pos.z - hw], [pos.x + hw, pos.y + player.height, pos.z - hw],
                 [pos.x - hw, pos.y + player.height, pos.z + hw], [pos.x + hw, pos.y + player.height, pos.z + hw]
             ];
-            return checkPoints.some(([x, y, z]) => getBlock(Math.floor(x), Math.floor(y), Math.floor(z)) !== BLOCKS.AIR);
+            return checkPoints.some(([x, y, z]) => {
+                const block = getBlock(Math.floor(x), Math.floor(y), Math.floor(z));
+                return block !== BLOCKS.AIR && block !== BLOCKS.WATER && block !== BLOCKS.LEAVES;
+            });
         }
 
         function updatePlayer(dt) {
             if (!isLocked || showInventory) return;
-            
+
             const forward = _v0.set(0, 0, -1).applyAxisAngle(_up, yaw);
             const right = _v2.set(1, 0, 0).applyAxisAngle(_up, yaw);
-            
+
             _v3.set(0, 0, 0);
             if (keys['ArrowUp']) _v3.add(forward);
             if (keys['ArrowDown']) _v3.sub(forward);
             if (keys['ArrowLeft']) _v3.sub(right);
             if (keys['ArrowRight']) _v3.add(right);
-            
+
             if (_v3.length() > 0) _v3.normalize().multiplyScalar(moveSpeed * dt);
+
+            // Horizontal movement with auto-step
+            const stepHeight = 0.6; // Max height to auto-step
             
+            // X movement
             _v1.copy(player.position); _v1.x += _v3.x;
-            if (!checkCollision(_v1)) player.position.x = _v1.x;
-            
+            if (!checkCollision(_v1)) {
+                player.position.x = _v1.x;
+            } else if (player.onGround) {
+                // Try to step up
+                const testPos = new THREE.Vector3(_v1.x, player.position.y + stepHeight, player.position.z);
+                if (!checkCollision(testPos)) {
+                    // Check if there's ground at the new position
+                    const groundCheck = new THREE.Vector3(_v1.x, player.position.y + stepHeight - 0.1, player.position.z);
+                    if (checkCollision(groundCheck) || player.onGround) {
+                        player.position.x = _v1.x;
+                        player.position.y = player.position.y + stepHeight;
+                    }
+                }
+            }
+
+            // Z movement
             _v1.copy(player.position); _v1.z += _v3.z;
-            if (!checkCollision(_v1)) player.position.z = _v1.z;
+            if (!checkCollision(_v1)) {
+                player.position.z = _v1.z;
+            } else if (player.onGround) {
+                // Try to step up
+                const testPos = new THREE.Vector3(player.position.x, player.position.y + stepHeight, _v1.z);
+                if (!checkCollision(testPos)) {
+                    player.position.z = _v1.z;
+                    player.position.y = player.position.y + stepHeight;
+                }
+            }
 
             if (keysJustDown['Space'] && player.onGround) { player.velocity.y = jumpForce; player.onGround = false; }
             keysJustDown['Space'] = false;
-            
+
             player.velocity.y -= gravity * dt;
             _v1.copy(player.position); _v1.y += player.velocity.y * dt;
-            
+
             if (!checkCollision(_v1)) {
                 player.position.y = _v1.y;
                 player.onGround = false;
             } else {
-                if (player.velocity.y < 0) player.onGround = true;
+                if (player.velocity.y < 0) {
+                    player.onGround = true;
+                    // Snap to ground level to prevent bouncing
+                    player.position.y = Math.floor(player.position.y) + 0.001;
+                }
                 player.velocity.y = 0;
             }
 
